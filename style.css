@@ -60,6 +60,10 @@ textarea{min-height:min(240px,32dvh);resize:vertical}
 .awake-option{display:flex;align-items:center;gap:7px;width:fit-content;margin-top:10px;font-size:.9rem}
 .awake-option input{width:auto;accent-color:#8ce5b5}
 .audio-note{font-size:.875rem;color:#d6e9df;margin-top:7px}
+.background-player{margin-top:14px}
+.background-player .skip{margin-left:5px}
+.background-player audio{display:block;width:min(100%,420px);height:44px;margin-top:9px}
+.background-download{display:inline-block;color:var(--mint);font-size:.9rem;padding:9px 0;line-height:1.5}
 .library-tools{display:flex;gap:8px;margin-top:15px;flex-wrap:wrap}
 .library-tools .light{font-size:.9rem}
 #storage-message{margin-top:8px;color:#285443}

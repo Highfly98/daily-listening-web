@@ -1,0 +1,10 @@
+The background player uses Flite 2.3 via @echogarden/flite-wasi 0.1.1.
+The WebAssembly is loaded unmodified from the pinned npm release.
+
+Engine build: https://github.com/echogarden-project/flite-wasi
+Engine source: https://github.com/festvox/flite
+Engine and embedded voice notices: FLITE-LICENSE.txt
+
+Browser WASI shim: @bjorn3/browser_wasi_shim 0.4.2, MIT option
+Source: https://github.com/bjorn3/browser_wasi_shim
+Notice: wasi/LICENSE.txt

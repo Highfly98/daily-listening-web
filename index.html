@@ -8,8 +8,8 @@
 <title>每日听读</title>
 <link rel="apple-touch-icon" href="icon.png">
 <link rel="manifest" href="manifest.webmanifest">
-<link rel="stylesheet" href="style.css?v=2">
-<script src="app.js?v=2" defer></script>
+<link rel="stylesheet" href="style.css?v=3">
+<script src="app.js?v=3" defer></script>
 </head>
 <body>
 <main class="shell">
@@ -55,8 +55,14 @@
           </label>
         </div>
         <label id="awake-option" class="awake-option" hidden><input id="awake" type="checkbox"> 播放时保持屏幕常亮</label>
-        <p class="audio-note">浏览器锁屏后可能暂停朗读。</p>
       </details>
+      <div class="background-player">
+        <button id="prepare-background" type="button" class="light" disabled>生成后台音频</button>
+        <button id="cancel-background" type="button" class="skip" hidden>取消</button>
+        <p id="background-status" class="audio-note" role="status" hidden></p>
+        <audio id="background-audio" aria-label="后台音频" controls preload="metadata" hidden></audio>
+        <a id="download-background" class="background-download" download hidden>存储音频</a>
+      </div>
       <p id="play-error" class="play-error" role="status" hidden></p>
     </div>
     <div class="waves" aria-hidden="true"><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i></div>

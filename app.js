@@ -5,6 +5,7 @@ const storageKey = "daily-listening.articles.v1";
 const preferencesKey = "daily-listening.preferences.v2";
 const synthesis = window.speechSynthesis;
 const speechAvailable = Boolean(synthesis && window.SpeechSynthesisUtterance);
+const backgroundAvailable = typeof Worker === "function" && typeof WebAssembly === "object";
 const preferences = {
   loop: ["all", "one"], "repeat-count": ["infinite", "1", "2", "3", "5", "10"],
   speed: ["1", "0.85", "0.7"], voice: ["en-US", "en-GB"], gap: ["0", "2", "5"]
@@ -15,6 +16,8 @@ const state = {
 };
 let wakeLock = null;
 let wakeRequest = false;
+let backgroundWorker = null;
+let backgroundURL = null;
 
 function show(id, message) {
   const element = $(id);
@@ -120,6 +123,7 @@ function updatePlayer() {
   $("play-label").textContent = labels[state.mode];
   $("play-symbol").textContent = state.mode === "playing" ? "❚❚" : "▶";
   $("toggle").disabled = !speechAvailable || !state.items.length;
+  $("prepare-background").disabled = !backgroundAvailable || !state.items.length || Boolean(backgroundWorker);
   $("previous").disabled = $("next").disabled = !speechAvailable || state.items.length < 2;
   $("player-title").textContent = $("loop").value === "one" ? "单篇播放" : "按日期播放";
   $("now").textContent = article
@@ -287,14 +291,20 @@ function nextPart() {
   prepareArticle(Number($("gap").value) * 1000);
 }
 
+function queueFrom(article) {
+  const articles = ordered();
+  if (!articles.length) return [];
+  const at = Math.max(0, articles.findIndex((item) => item.id === article?.id));
+  if ($("loop").value === "one") return [articles[at]];
+  return [...articles.slice(at), ...articles.slice(0, at)];
+}
+
 function begin(article) {
   if (!article || !speechAvailable) return;
+  cancelBackground();
   cancelSpeech();
   show("play-error", "");
-  const articles = ordered();
-  const at = articles.findIndex((item) => item.id === article.id);
-  if (at < 0) return;
-  state.queue = $("loop").value === "one" ? [article] : [...articles.slice(at), ...articles.slice(0, at)];
+  state.queue = queueFrom(article);
   state.position = 0;
   state.completed = 0;
   const count = $("repeat-count").value;
@@ -317,6 +327,122 @@ function move(offset) {
 function currentArticle() {
   return state.items.find((item) => item.id === state.active);
 }
+
+function setMediaSession(active) {
+  const audio = $("background-audio");
+  if (navigator.audioSession) {
+    try { navigator.audioSession.type = active ? "playback" : "auto"; } catch {}
+  }
+  const session = navigator.mediaSession;
+  if (session) {
+    try {
+      session.metadata = active && typeof MediaMetadata === "function"
+        ? new MediaMetadata({
+          title: audio.dataset.title,
+          artist: "每日听读",
+          artwork: [{ src: new URL("./icon.png", window.location.href).href, sizes: "1024x1024", type: "image/png" }]
+        })
+        : null;
+    } catch {}
+  }
+}
+
+function cancelBackground() {
+  if (!backgroundWorker && !backgroundURL) return;
+  backgroundWorker?.terminate();
+  backgroundWorker = null;
+  const audio = $("background-audio");
+  if (backgroundURL) {
+    audio.pause();
+    audio.removeAttribute("src");
+    audio.load();
+    URL.revokeObjectURL(backgroundURL);
+    backgroundURL = null;
+    setMediaSession(false);
+  }
+  audio.hidden = $("download-background").hidden = $("cancel-background").hidden = true;
+  $("download-background").removeAttribute("href");
+  show("background-status", "");
+}
+
+function generateBackground() {
+  if (!backgroundAvailable || !state.items.length) return;
+  const queue = queueFrom(currentArticle());
+  const repeats = $("repeat-count").value;
+  const infinite = repeats === "infinite";
+  cancelBackground();
+  cancelSpeech();
+  state.mode = currentArticle() ? "stopped" : "idle";
+  void refreshWakeLock();
+  const cancel = $("cancel-background");
+  cancel.textContent = "取消";
+  cancel.hidden = false;
+  show("background-status", "正在准备语音引擎。首次使用需要下载约 22 MB，请暂时保持网页打开。");
+  try {
+    const worker = new Worker(new URL("./flite-worker.js", document.baseURI), { type: "module" });
+    backgroundWorker = worker;
+    updatePlayer();
+    const fail = (reason) => {
+      if (backgroundWorker !== worker) return;
+      cancelBackground();
+      show("background-status", reason);
+      updatePlayer();
+    };
+    worker.addEventListener("error", () => fail("后台音频未生成。请确认网络已连接，再用 Safari 重试。"));
+    worker.addEventListener("message", ({ data }) => {
+      if (backgroundWorker !== worker) return;
+      if (data.error) {
+        const errors = {
+          engine: "语音引擎加载失败，请检查网络后重试。",
+          length: "音频太长了，请减少循环次数，或选择单篇后重试。",
+          synthesis: "这次没能生成音频，请尝试单篇播放。"
+        };
+        fail(errors[data.error]);
+        return;
+      }
+      if (!data.audio) {
+        show("background-status", `正在生成音频 · ${data.done} / ${data.total} 篇。请暂时保持网页打开。`);
+        return;
+      }
+      worker.terminate();
+      backgroundWorker = null;
+      const audio = $("background-audio");
+      const link = $("download-background");
+      backgroundURL = URL.createObjectURL(data.audio);
+      audio.dataset.title = queue.length === 1 ? title(queue[0]) : "按日期听力复习";
+      audio.loop = infinite;
+      audio.src = backgroundURL;
+      audio.hidden = false;
+      link.href = backgroundURL;
+      link.download = `每日听读-${today()}.wav`;
+      link.hidden = false;
+      cancel.textContent = "关闭后台音频";
+      setMediaSession(true);
+      show("background-status", "音频已生成。点下方播放器的播放键，听到声音后再锁屏或切换应用。");
+      updatePlayer();
+    });
+    worker.postMessage({
+      articles: queue.map((article) => article.text),
+      infinite, repetitions: infinite ? 1 : Number(repeats),
+      gap: Number($("gap").value), speed: Number($("speed").value), language: $("voice").value
+    });
+  } catch {
+    cancelBackground();
+    cancel.hidden = true;
+    show("background-status", "当前环境无法生成后台音频，请在 Safari 中打开。");
+    updatePlayer();
+  }
+}
+
+$("prepare-background").addEventListener("click", generateBackground);
+$("cancel-background").addEventListener("click", () => {
+  cancelBackground();
+  updatePlayer();
+});
+$("background-audio").addEventListener("play", () => setMediaSession(true));
+$("background-audio").addEventListener("error", () => {
+  if (backgroundURL) show("background-status", "浏览器没能播放。可以点「存储音频」，再用手机的音频播放器打开。");
+});
 
 $("toggle").addEventListener("click", () => {
   if (state.mode === "playing") {
